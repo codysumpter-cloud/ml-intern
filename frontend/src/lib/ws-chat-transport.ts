@@ -313,8 +313,7 @@ export class WebSocketChatTransport implements ChatTransport<UIMessage> {
       if (!noRetry.includes(evt.code) && this.currentSessionId === sessionId) {
         this.retries += 1;
         if (this.retries > WS_MAX_RETRIES) {
-          logger.warn('WS max retries reached');
-          this.sideChannel.onSessionDead(sessionId);
+          logger.warn('WS max retries reached, will reconnect on session switch');
           return;
         }
         this.reconnectTimeout = setTimeout(() => {

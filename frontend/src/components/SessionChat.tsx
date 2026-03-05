@@ -38,6 +38,11 @@ export default function SessionChat({ sessionId, isActive, onSessionDead }: Sess
   const prevActiveRef = useRef(isActive);
   useEffect(() => {
     if (isActive && !prevActiveRef.current) {
+      // Force reconnect if WS is dead (e.g. retries exhausted while on another session)
+      if (transport && !transport.isWebSocketConnected()) {
+        transport.connectToSession(sessionId);
+      }
+
       const store = useAgentStore.getState();
 
       // Sync WebSocket connection state
