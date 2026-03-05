@@ -293,11 +293,8 @@ class HfJobsTool:
         log_callback: Optional[Callable[[str], Awaitable[None]]] = None,
         session: Any = None,
         tool_call_id: Optional[str] = None,
-        user_token: Optional[str] = None,
     ):
         self.hf_token = hf_token
-        # user_token is injected into job secrets; hf_token is for API calls (job creation)
-        self.user_token = user_token or hf_token
         self.api = HfApi(token=hf_token)
         self.namespace = namespace
         self.log_callback = log_callback
@@ -522,7 +519,7 @@ class HfJobsTool:
                 image=image,
                 command=command,
                 env=_add_default_env(args.get("env")),
-                secrets=_add_environment_variables(args.get("secrets"), self.user_token),
+                secrets=_add_environment_variables(args.get("secrets"), self.hf_token),
                 flavor=args.get("hardware_flavor", "cpu-basic"),
                 timeout=args.get("timeout", "30m"),
                 namespace=self.namespace,
@@ -754,7 +751,7 @@ To verify, call this tool with `{{"operation": "inspect", "job_id": "{job_id}"}}
                 command=command,
                 schedule=schedule,
                 env=_add_default_env(args.get("env")),
-                secrets=_add_environment_variables(args.get("secrets"), self.user_token),
+                secrets=_add_environment_variables(args.get("secrets"), self.hf_token),
                 flavor=args.get("hardware_flavor", "cpu-basic"),
                 timeout=args.get("timeout", "30m"),
                 namespace=self.namespace,
@@ -1038,34 +1035,20 @@ async def hf_jobs_handler(
         # If script is a sandbox file path, read it from the sandbox
         script = arguments.get("script", "")
         sandbox = getattr(session, "sandbox", None) if session else None
-        is_path = (
-            sandbox
-            and isinstance(script, str)
-            and script.strip() == script
-            and not any(c in script for c in "\r\n\0")
-            and (
-                script.startswith("/")
-                or script.startswith("./")
-                or script.startswith("../")
-            )
-        )
-        if is_path:
-            import shlex
+        if sandbox and script:
+            from agent.tools.sandbox_tool import resolve_sandbox_script
+            content, error = await resolve_sandbox_script(sandbox, script)
+            if error:
+                return error, False
+            if content:
+                arguments = {**arguments, "script": content}
 
-            result = await asyncio.to_thread(sandbox.bash, f"cat {shlex.quote(script)}")
-            if not result.success:
-                return f"Failed to read {script} from sandbox: {result.error}", False
-            arguments = {**arguments, "script": result.output}
-
-        user_token = session.hf_token if session else None
-        # HF_ADMIN_TOKEN creates jobs under the org; user token is injected into job secrets
-        admin_token = os.environ.get("HF_ADMIN_TOKEN") or user_token
-        namespace = os.environ.get("HF_NAMESPACE") or (HfApi(token=admin_token).whoami().get("name") if admin_token else None)
+        hf_token = session.hf_token if session else None
+        namespace = os.environ.get("HF_NAMESPACE") or (HfApi(token=hf_token).whoami().get("name") if hf_token else None)
 
         tool = HfJobsTool(
             namespace=namespace,
-            hf_token=admin_token,
-            user_token=user_token,
+            hf_token=hf_token,
             log_callback=log_callback if session else None,
             session=session,
             tool_call_id=tool_call_id,
