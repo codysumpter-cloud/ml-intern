@@ -22,6 +22,9 @@ AUTH_ENABLED = bool(os.environ.get("OAUTH_CLIENT_ID", ""))
 _token_cache: dict[str, tuple[dict[str, Any], float]] = {}
 TOKEN_CACHE_TTL = 300  # 5 minutes
 
+# Org membership cache: key -> expiry_time (only caches positive results)
+_org_member_cache: dict[str, float] = {}
+
 DEV_USER: dict[str, Any] = {
     "user_id": "dev",
     "username": "dev",
@@ -78,6 +81,31 @@ async def _extract_user_from_token(token: str) -> dict[str, Any] | None:
     if user_info:
         return _user_from_info(user_info)
     return None
+
+
+async def check_org_membership(token: str, org_name: str) -> bool:
+    """Check if the token owner belongs to an HF org. Only caches positive results."""
+    now = time.time()
+    key = token + org_name
+    cached = _org_member_cache.get(key)
+    if cached and cached > now:
+        return True
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            resp = await client.get(
+                f"{OPENID_PROVIDER_URL}/api/whoami-v2",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if resp.status_code != 200:
+                return False
+            orgs = {o.get("name") for o in resp.json().get("orgs", [])}
+            if org_name in orgs:
+                _org_member_cache[key] = now + TOKEN_CACHE_TTL
+                return True
+            return False
+        except httpx.HTTPError:
+            return False
 
 
 async def get_current_user(request: Request) -> dict[str, Any]:

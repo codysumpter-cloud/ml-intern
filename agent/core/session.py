@@ -19,12 +19,14 @@ logger = logging.getLogger(__name__)
 # on network calls for certain providers (known litellm issue).
 _MAX_TOKENS_MAP: dict[str, int] = {
     # Anthropic
+    "anthropic/claude-opus-4-6": 200_000,
     "anthropic/claude-opus-4-5-20251101": 200_000,
     "anthropic/claude-sonnet-4-5-20250929": 200_000,
     "anthropic/claude-sonnet-4-20250514": 200_000,
     "anthropic/claude-haiku-3-5-20241022": 200_000,
     "anthropic/claude-3-5-sonnet-20241022": 200_000,
     "anthropic/claude-3-opus-20240229": 200_000,
+    "huggingface/fireworks-ai/MiniMaxAI/MiniMax-M2.5": 200_000,
     "huggingface/novita/minimax/minimax-m2.1": 196_608,
     "huggingface/novita/moonshotai/kimi-k2.5": 262_144,
     "huggingface/novita/zai-org/glm-5": 200_000,

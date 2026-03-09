@@ -142,7 +142,7 @@ async def oauth_callback(
         httponly=True,
         secure=is_production,  # Secure flag only in production (HTTPS)
         samesite="lax",
-        max_age=3600 * 24,  # 24 hours
+        max_age=3600 * 24 * 7,  # 7 days
         path="/",
     )
     return response

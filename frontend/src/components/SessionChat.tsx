@@ -94,9 +94,18 @@ export default function SessionChat({ sessionId, isActive, onSessionDead }: Sess
         store.setActivityStatus({ type: 'tool', toolName: 'running' });
         store.setProcessing(true);
       } else {
-        // No pending approval — reset to idle
-        store.setActivityStatus({ type: 'idle' });
-        store.setProcessing(false);
+        // Check if any tools are still running (non-approval tools like bash, read, etc.)
+        const runningTool = lastAssistant?.parts.find(
+          (p) => p.type === 'dynamic-tool' && (p.state === 'input-available' || p.state === 'input-streaming')
+        );
+        if (runningTool && runningTool.type === 'dynamic-tool') {
+          const desc = (runningTool.input as Record<string, unknown>)?.description as string | undefined;
+          store.setActivityStatus({ type: 'tool', toolName: runningTool.toolName, description: desc });
+          store.setProcessing(true);
+        } else {
+          store.setActivityStatus({ type: 'idle' });
+          store.setProcessing(false);
+        }
       }
     }
     prevActiveRef.current = isActive;

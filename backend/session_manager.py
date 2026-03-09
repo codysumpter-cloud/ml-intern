@@ -164,6 +164,17 @@ class SessionManager:
         logger.info(f"Created session {session_id} for user {user_id}")
         return session_id
 
+    @staticmethod
+    async def _cleanup_sandbox(session: Session) -> None:
+        """Delete the sandbox Space if one was created for this session."""
+        sandbox = getattr(session, "sandbox", None)
+        if sandbox and getattr(sandbox, "_owns_space", False):
+            try:
+                logger.info(f"Deleting sandbox {sandbox.space_id}...")
+                await asyncio.to_thread(sandbox.delete)
+            except Exception as e:
+                logger.warning(f"Failed to delete sandbox {sandbox.space_id}: {e}")
+
     async def _run_session(
         self,
         session_id: str,
@@ -217,6 +228,8 @@ class SessionManager:
                 await event_forwarder
             except asyncio.CancelledError:
                 pass
+
+            await self._cleanup_sandbox(session)
 
             async with self._lock:
                 if session_id in self.sessions:
@@ -308,6 +321,9 @@ class SessionManager:
             return False
 
         ws_manager.clear_buffer(session_id)
+
+        # Clean up sandbox Space before cancelling the task
+        await self._cleanup_sandbox(agent_session.session)
 
         # Cancel the task if running
         if agent_session.task and not agent_session.task.done():

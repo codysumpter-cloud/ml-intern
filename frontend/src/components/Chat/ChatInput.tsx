@@ -22,19 +22,19 @@ const getHfAvatarUrl = (modelId: string) => {
 
 const MODEL_OPTIONS: ModelOption[] = [
   {
-    id: 'minimax-m2.1',
-    name: 'MiniMax M2.1',
-    description: 'Via Novita',
-    modelPath: 'huggingface/novita/minimax/minimax-m2.1',
-    avatarUrl: getHfAvatarUrl('MiniMaxAI/MiniMax-M2.1'),
+    id: 'claude-opus',
+    name: 'Claude Opus 4.6',
+    description: 'Anthropic',
+    modelPath: 'anthropic/claude-opus-4-6',
+    avatarUrl: 'https://huggingface.co/api/avatars/Anthropic',
     recommended: true,
   },
   {
-    id: 'claude-opus',
-    name: 'Claude Opus 4.5',
-    description: 'Anthropic',
-    modelPath: 'anthropic/claude-opus-4-5-20251101',
-    avatarUrl: 'https://huggingface.co/api/avatars/Anthropic',
+    id: 'minimax-m2.5',
+    name: 'MiniMax M2.5',
+    description: 'Via Fireworks',
+    modelPath: 'huggingface/fireworks-ai/MiniMaxAI/MiniMax-M2.5',
+    avatarUrl: getHfAvatarUrl('MiniMaxAI/MiniMax-M2.5'),
     recommended: true,
   },
   {

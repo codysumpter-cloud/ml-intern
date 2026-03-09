@@ -37,15 +37,15 @@ router = APIRouter(prefix="/api", tags=["agent"])
 
 AVAILABLE_MODELS = [
     {
-        "id": "huggingface/novita/minimax/minimax-m2.1",
-        "label": "MiniMax M2.1",
-        "provider": "huggingface",
+        "id": "anthropic/claude-opus-4-6",
+        "label": "Claude Opus 4.6",
+        "provider": "anthropic",
         "recommended": True,
     },
     {
-        "id": "anthropic/claude-opus-4-5-20251101",
-        "label": "Claude Opus 4.5",
-        "provider": "anthropic",
+        "id": "huggingface/fireworks-ai/MiniMaxAI/MiniMax-M2.5",
+        "label": "MiniMax M2.5",
+        "provider": "huggingface",
         "recommended": True,
     },
     {

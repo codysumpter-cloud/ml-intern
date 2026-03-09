@@ -1,12 +1,11 @@
 {
-  "model_name": "huggingface/novita/moonshotai/kimi-k2.5",
+  "model_name": "anthropic/claude-opus-4-6",
   "save_sessions": true,
   "session_dataset_repo": "akseljoonas/hf-agent-sessions",
   "yolo_mode": false,
   "confirm_cpu_jobs": true,
   "auto_file_upload": true,
-  "mcpServers": {},
-  "_mcpServers_disabled": {
+  "mcpServers": {
     "hf-mcp-server": {
       "transport": "http",
       "url": "https://huggingface.co/mcp?login"

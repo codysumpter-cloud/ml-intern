@@ -10,7 +10,6 @@ from typing import Any, TypedDict
 
 import httpx
 
-from agent.core.session import Session
 from agent.tools.types import ToolResult
 
 BASE_URL = "https://datasets-server.huggingface.co"
@@ -424,17 +423,16 @@ HF_INSPECT_DATASET_TOOL_SPEC = {
 }
 
 
-async def hf_inspect_dataset_handler(
-    arguments: dict[str, Any], session: Session = None
-) -> tuple[str, bool]:
+async def hf_inspect_dataset_handler(arguments: dict[str, Any], session=None) -> tuple[str, bool]:
     """Handler for agent tool router"""
     try:
+        hf_token = session.hf_token if session else None
         result = await inspect_dataset(
             dataset=arguments["dataset"],
             config=arguments.get("config"),
             split=arguments.get("split"),
             sample_rows=min(arguments.get("sample_rows", 3), 10),
-            hf_token=session.hf_token,
+            hf_token=hf_token,
         )
         return result["formatted"], not result.get("isError", False)
     except Exception as e:
