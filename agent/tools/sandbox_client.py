@@ -37,11 +37,12 @@ Tools: bash, read, write, edit, upload
 from __future__ import annotations
 
 import io
+import json
 import sys
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Generator
 
 import httpx
 from huggingface_hub import CommitOperationAdd, HfApi
@@ -97,8 +98,9 @@ CMD ["python", "sandbox_server.py"]
 
 _SANDBOX_SERVER = '''\
 """Minimal FastAPI server for sandbox operations."""
-import os, subprocess, pathlib
+import os, subprocess, pathlib, asyncio, json
 from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
 import uvicorn
@@ -147,6 +149,41 @@ def bash(req: BashReq):
         return {"success": False, "output": "", "error": f"Timeout after {req.timeout}s"}
     except Exception as e:
         return {"success": False, "output": "", "error": str(e)}
+
+@app.post("/api/bash/stream")
+async def bash_stream(req: BashReq):
+    """Stream bash output line-by-line as NDJSON."""
+    async def generate():
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                req.command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=req.work_dir,
+            )
+            total_chars = 0
+            try:
+                line_bytes = await asyncio.wait_for(proc.stdout.readline(), timeout=req.timeout)
+                while line_bytes:
+                    line = line_bytes.decode(errors="replace")
+                    total_chars += len(line)
+                    if total_chars <= 30000:
+                        yield json.dumps({"type": "output", "data": line}) + "\\n"
+                    elif total_chars - len(line) <= 30000:
+                        yield json.dumps({"type": "output", "data": "... (truncated)\\n"}) + "\\n"
+                    line_bytes = await asyncio.wait_for(proc.stdout.readline(), timeout=req.timeout)
+            except asyncio.TimeoutError:
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
+                yield json.dumps({"type": "error", "data": f"Timeout after {req.timeout}s"}) + "\\n"
+                return
+            rc = await proc.wait()
+            yield json.dumps({"type": "exit", "code": rc}) + "\\n"
+        except Exception as e:
+            yield json.dumps({"type": "error", "data": str(e)}) + "\\n"
+    return StreamingResponse(generate(), media_type="application/x-ndjson")
 
 @app.post("/api/read")
 def read(req: ReadReq):
@@ -491,6 +528,58 @@ class Sandbox:
             },
             timeout=timeout,
         )
+
+    def bash_stream(
+        self,
+        command: str,
+        *,
+        work_dir: str | None = None,
+        timeout: int | None = None,
+    ) -> Generator[tuple[str, str | int], None, None]:
+        """Stream bash output line-by-line from the sandbox.
+
+        Yields:
+            (event_type, data) tuples:
+              - ("output", line_text)
+              - ("error", error_message)
+              - ("exit", return_code)
+        """
+        effective_timeout = min(timeout or self.timeout, MAX_TIMEOUT)
+        payload = {
+            "command": command,
+            "work_dir": work_dir or self.work_dir,
+            "timeout": effective_timeout,
+        }
+        try:
+            with self._client.stream(
+                "POST",
+                "bash/stream",
+                json=payload,
+                timeout=httpx.Timeout(effective_timeout + 30, connect=30),
+            ) as resp:
+                if resp.status_code != 200:
+                    yield ("error", f"HTTP {resp.status_code}")
+                    return
+                for raw_line in resp.iter_lines():
+                    if not raw_line:
+                        continue
+                    try:
+                        msg = json.loads(raw_line)
+                    except json.JSONDecodeError:
+                        continue
+                    msg_type = msg.get("type", "")
+                    if msg_type == "output":
+                        yield ("output", msg.get("data", ""))
+                    elif msg_type == "exit":
+                        yield ("exit", msg.get("code", -1))
+                    elif msg_type == "error":
+                        yield ("error", msg.get("data", "unknown error"))
+        except httpx.TimeoutException:
+            yield ("error", f"Timeout after {effective_timeout}s")
+        except httpx.ConnectError:
+            yield ("error", f"Cannot connect to sandbox. Is {self.space_id} running?")
+        except Exception as e:
+            yield ("error", str(e))
 
     def read(
         self, path: str, *, offset: int | None = None, limit: int | None = None

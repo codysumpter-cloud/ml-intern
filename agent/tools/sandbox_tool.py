@@ -190,8 +190,77 @@ async def sandbox_create_handler(
     ), True
 
 
+def _make_bash_streaming_handler():
+    """Create a bash handler that streams output via tool_log events."""
+
+    async def handler(args: dict[str, Any], session: Any = None) -> tuple[str, bool]:
+        if not session or not getattr(session, "sandbox", None):
+            return "No sandbox running. Call sandbox_create first to start one.", False
+
+        sb = session.sandbox
+        queue: asyncio.Queue = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+
+        def producer():
+            try:
+                for event_type, data in sb.bash_stream(
+                    args["command"],
+                    work_dir=args.get("work_dir"),
+                    timeout=args.get("timeout"),
+                ):
+                    loop.call_soon_threadsafe(queue.put_nowait, (event_type, data))
+                loop.call_soon_threadsafe(queue.put_nowait, None)
+            except Exception as e:
+                loop.call_soon_threadsafe(queue.put_nowait, ("error", str(e)))
+                loop.call_soon_threadsafe(queue.put_nowait, None)
+
+        fut = loop.run_in_executor(None, producer)
+
+        all_output: list[str] = []
+        exit_code = 0
+        error_msg = ""
+
+        while True:
+            item = await queue.get()
+            if item is None:
+                break
+
+            event_type, data = item
+            if event_type == "output":
+                all_output.append(data)
+                if session:
+                    await session.send_event(
+                        Event(
+                            event_type="tool_log",
+                            data={"tool": "bash", "log": data.rstrip("\n")},
+                        )
+                    )
+            elif event_type == "exit":
+                exit_code = data
+            elif event_type == "error":
+                error_msg = data
+
+        await fut
+
+        output = "".join(all_output)
+        if not output and not error_msg:
+            output = "(no output)"
+
+        if error_msg:
+            if output:
+                return f"{output}\nERROR: {error_msg}", False
+            return f"ERROR: {error_msg}", False
+
+        if exit_code != 0:
+            return f"{output}\nExit code {exit_code}", False
+
+        return output, True
+
+    return handler
+
+
 def _make_tool_handler(sandbox_tool_name: str):
-    """Factory: create a handler for a sandbox operation tool."""
+    """Factory: create a handler for a sandbox operation tool (non-bash)."""
 
     async def handler(args: dict[str, Any], session: Any = None) -> tuple[str, bool]:
         # Require sandbox to exist — user must approve sandbox_create first
@@ -235,12 +304,17 @@ def get_sandbox_tools():
     # Operation tools (auto-execute, no approval needed)
     for name in Sandbox.TOOLS.keys():
         spec = Sandbox.TOOLS[name]
+        # Bash uses streaming handler; other tools use standard handler
+        if name == "bash":
+            handler = _make_bash_streaming_handler()
+        else:
+            handler = _make_tool_handler(name)
         tools.append(
             ToolSpec(
                 name=name,
                 description=spec["description"],
                 parameters=spec["parameters"],
-                handler=_make_tool_handler(name),
+                handler=handler,
             )
         )
 
