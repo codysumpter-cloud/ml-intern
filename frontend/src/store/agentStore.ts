@@ -135,10 +135,7 @@ export const useAgentStore = create<AgentStore>()((set, get) => ({
   setPanelView: (view) => set({ panelView: view }),
 
   setPanelOutput: (output) => set((state) => ({
-    panelData: state.panelData
-      ? { ...state.panelData, output }
-      : { title: 'Output', output },
-    panelView: 'output',
+    panelData: state.panelData ? { ...state.panelData, output } : null,
   })),
 
   updatePanelScript: (content) => set((state) => ({
