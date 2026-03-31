@@ -19,6 +19,13 @@ type DynamicToolPart = Extract<UIMessage['parts'][number], { type: 'dynamic-tool
 
 type ToolPartState = DynamicToolPart['state'];
 
+/** Check if a tool part was cancelled (output-error with cancellation message). */
+function isCancelledTool(tool: DynamicToolPart): boolean {
+  return tool.state === 'output-error' &&
+    typeof (tool as Record<string, unknown>).errorText === 'string' &&
+    ((tool as Record<string, unknown>).errorText as string).includes('Cancelled by user');
+}
+
 interface ToolCallGroupProps {
   tools: DynamicToolPart[];
   approveTools: (approvals: Array<{ tool_call_id: string; approved: boolean; feedback?: string | null; edited_script?: string | null }>) => Promise<boolean>;
@@ -54,7 +61,10 @@ function costLabel(hardware: string): string | null {
 // Visual helpers
 // ---------------------------------------------------------------------------
 
-function StatusIcon({ state }: { state: ToolPartState }) {
+function StatusIcon({ state, cancelled }: { state: ToolPartState; cancelled?: boolean }) {
+  if (cancelled) {
+    return <BlockIcon sx={{ fontSize: 16, color: 'var(--muted-text)' }} />;
+  }
   switch (state) {
     case 'approval-requested':
       return <HourglassEmptyIcon sx={{ fontSize: 16, color: 'var(--accent-yellow)' }} />;
@@ -563,10 +573,11 @@ export default function ToolCallGroup({ tools, approveTools }: ToolCallGroupProp
             !!tool.input;
           const localDecision = decisions[tool.toolCallId];
 
+          const cancelled = isCancelledTool(tool);
           const displayState = isPending && localDecision
             ? (localDecision.approved ? 'input-available' : 'output-denied')
             : state;
-          const label = statusLabel(displayState as ToolPartState);
+          const label = cancelled ? 'cancelled' : statusLabel(displayState as ToolPartState);
 
           // Parse job metadata from hf_jobs output and store
           const jobUrlFromStore = tool.toolName === 'hf_jobs' ? getJobUrl(tool.toolCallId) : undefined;
@@ -596,11 +607,14 @@ export default function ToolCallGroup({ tools, approveTools }: ToolCallGroupProp
                   '&:hover': clickable && !isPending ? { bgcolor: 'var(--hover-bg)' } : {},
                 }}
               >
-                <StatusIcon state={
-                  (tool.toolName === 'hf_jobs' && jobMeta.jobStatus && ['ERROR', 'FAILED', 'CANCELLED'].includes(jobMeta.jobStatus) && displayState === 'output-available')
-                    ? 'output-error'
-                    : displayState as ToolPartState
-                } />
+                <StatusIcon
+                  cancelled={cancelled}
+                  state={
+                    (tool.toolName === 'hf_jobs' && jobMeta.jobStatus && ['ERROR', 'FAILED', 'CANCELLED'].includes(jobMeta.jobStatus) && displayState === 'output-available')
+                      ? 'output-error'
+                      : displayState as ToolPartState
+                  }
+                />
 
                 <Typography
                   variant="body2"
@@ -628,10 +642,11 @@ export default function ToolCallGroup({ tools, approveTools }: ToolCallGroupProp
                       height: 20,
                       fontSize: '0.65rem',
                       fontWeight: 600,
-                      bgcolor: displayState === 'output-error' ? 'rgba(224,90,79,0.12)'
+                      bgcolor: cancelled ? 'rgba(255,255,255,0.05)'
+                        : displayState === 'output-error' ? 'rgba(224,90,79,0.12)'
                         : displayState === 'output-denied' ? 'rgba(255,255,255,0.05)'
                         : 'var(--accent-yellow-weak)',
-                      color: statusColor(displayState as ToolPartState),
+                      color: cancelled ? 'var(--muted-text)' : statusColor(displayState as ToolPartState),
                       letterSpacing: '0.03em',
                     }}
                   />

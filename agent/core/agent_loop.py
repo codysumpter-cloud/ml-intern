@@ -577,6 +577,13 @@ class Handlers:
                             await gather_task
                         except asyncio.CancelledError:
                             pass
+                        # Notify frontend that in-flight tools were cancelled
+                        for tc, name, _args, valid, _ in parsed_tools:
+                            if valid:
+                                await session.send_event(Event(
+                                    event_type="tool_state_change",
+                                    data={"tool_call_id": tc.id, "tool": name, "state": "cancelled"},
+                                ))
                         await _cleanup_on_cancel(session)
                         break
 
@@ -834,6 +841,12 @@ class Handlers:
                     await gather_task
                 except asyncio.CancelledError:
                     pass
+                # Notify frontend that approved tools were cancelled
+                for tc, tool_name, _args, _was_edited in approved_tasks:
+                    await session.send_event(Event(
+                        event_type="tool_state_change",
+                        data={"tool_call_id": tc.id, "tool": tool_name, "state": "cancelled"},
+                    ))
                 await _cleanup_on_cancel(session)
                 await session.send_event(Event(event_type="interrupted"))
                 session.increment_turn()

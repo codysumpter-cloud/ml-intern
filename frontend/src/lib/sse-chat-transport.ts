@@ -31,6 +31,7 @@ export interface SideChannelCallbacks {
   onToolOutputPanel: (tool: string, toolCallId: string, output: string, success: boolean) => void;
   onStreaming: () => void;
   onToolRunning: (toolName: string, description?: string) => void;
+  onInterrupted: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -104,6 +105,7 @@ function createEventToChunkStream(sideChannel: SideChannelCallbacks): TransformS
           endTextPart(controller);
           controller.enqueue({ type: 'finish-step' });
           controller.enqueue({ type: 'finish', finishReason: 'stop' });
+          sideChannel.onInterrupted();
           sideChannel.onProcessingDone();
           break;
 
@@ -233,6 +235,9 @@ function createEventToChunkStream(sideChannel: SideChannelCallbacks): TransformS
           }
           if (state === 'rejected' || state === 'abandoned') {
             controller.enqueue({ type: 'tool-output-denied', toolCallId: tcId });
+          }
+          if (state === 'cancelled') {
+            controller.enqueue({ type: 'tool-output-error', toolCallId: tcId, errorText: 'Cancelled by user', dynamic: true });
           }
           break;
         }

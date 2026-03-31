@@ -223,6 +223,7 @@ export function useAgentChat({ sessionId, isActive, onReady, onError, onSessionD
       onToolRunning: (toolName: string, description?: string) => {
         updateSession(sessionId, { activityStatus: { type: 'tool', toolName, description } });
       },
+      onInterrupted: () => { /* no-op — handled by stop() caller */ },
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [sessionId],
@@ -586,11 +587,14 @@ export function useAgentChat({ sessionId, isActive, onReady, onError, onSessionD
     [sessionId, chat, updateSession, setNeedsAttention],
   );
 
-  // -- Stop (abort SSE stream + interrupt backend agent loop) ---------------
+  // -- Stop (interrupt backend agent loop, keep SSE open for events) --------
   const stop = useCallback(() => {
-    chat.stop();
+    // Don't call chat.stop() — keep the SSE stream open so the backend's
+    // tool_state_change(cancelled) and interrupted events reach the frontend.
+    // The stream closes naturally when the backend sends finish events.
+    updateSession(sessionId, { isProcessing: false });
     apiFetch(`/api/interrupt/${sessionId}`, { method: 'POST' }).catch(() => {});
-  }, [sessionId, chat]);
+  }, [sessionId, updateSession]);
 
   return {
     messages: chat.messages,

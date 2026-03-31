@@ -5,7 +5,7 @@
  * runs — processing events — but only the active session renders visible
  * UI (MessageList + ChatInput).
  */
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAgentChat } from '@/hooks/useAgentChat';
 import { useAgentStore } from '@/store/agentStore';
 import { useSessionStore } from '@/store/sessionStore';
@@ -23,6 +23,8 @@ interface SessionChatProps {
 export default function SessionChat({ sessionId, isActive, onSessionDead }: SessionChatProps) {
   const { isConnected, isProcessing, activityStatus, updateSession } = useAgentStore();
   const { updateSessionTitle } = useSessionStore();
+
+  const [wasCancelled, setWasCancelled] = useState(false);
 
   const { messages, sendMessage, stop, status, undoLastTurn, approveTools } = useAgentChat({
     sessionId,
@@ -55,6 +57,12 @@ export default function SessionChat({ sessionId, isActive, onSessionDead }: Sess
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [isActive, sessionId]);
 
+  // Wrap stop to track cancellation
+  const handleStop = useCallback(() => {
+    stop();
+    setWasCancelled(true);
+  }, [stop]);
+
   // SDK status is the ground truth — if it's streaming/submitted, agent is busy
   const sdkBusy = status === 'streaming' || status === 'submitted';
   const busy = isProcessing || sdkBusy;
@@ -63,6 +71,7 @@ export default function SessionChat({ sessionId, isActive, onSessionDead }: Sess
     async (text: string) => {
       if (!text.trim() || busy) return;
 
+      setWasCancelled(false);
       updateSession(sessionId, { isProcessing: true });
       sendMessage({ text: text.trim(), metadata: { createdAt: new Date().toISOString() } });
 
@@ -99,10 +108,16 @@ export default function SessionChat({ sessionId, isActive, onSessionDead }: Sess
       />
       <ChatInput
         onSend={handleSendMessage}
-        onStop={stop}
+        onStop={handleStop}
         isProcessing={busy}
         disabled={!isConnected || activityStatus.type === 'waiting-approval'}
-        placeholder={activityStatus.type === 'waiting-approval' ? 'Approve or reject pending tools first...' : undefined}
+        placeholder={
+          activityStatus.type === 'waiting-approval'
+            ? 'Approve or reject pending tools first...'
+            : wasCancelled
+              ? 'What should the agent do instead?'
+              : undefined
+        }
       />
     </>
   );
