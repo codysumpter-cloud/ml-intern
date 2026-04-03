@@ -15,8 +15,6 @@
 
 set -euo pipefail
 
-module load cuda/12.9
-
 EVALUATION_TASK="$1"
 AGENT="$2"
 MODEL_TO_TRAIN="$3"
@@ -27,6 +25,8 @@ AGENT_CONFIG="$5"
 REPO_DIR="${SLURM_SUBMIT_DIR}"
 POSTTRAINBENCH_DIR="${POSTTRAINBENCH_DIR:-/fsx/aksel/PostTrainBench}"
 HF_CACHE="${HF_HOME:-$HOME/.cache/huggingface}"
+REGISTRY="registry.hpc-cluster-hopper.hpc.internal.huggingface.tech/library"
+CONTAINER_IMAGE="${CONTAINER_IMAGE:-${REGISTRY}/posttrainbench:latest}"
 
 RESULT_PREFIX_SAFE=$(echo "$MODEL_TO_TRAIN" | tr '/:' '_')
 AGENT_CONFIG_SAFE=$(echo "$AGENT_CONFIG" | tr '/:' '_')
@@ -37,6 +37,7 @@ mkdir -p "${EVAL_DIR}"
 
 echo "Task: $EVALUATION_TASK | Agent: $AGENT | Model: $MODEL_TO_TRAIN | Hours: $NUM_HOURS | Config: $AGENT_CONFIG"
 echo "Results: $EVAL_DIR"
+echo "Container: $CONTAINER_IMAGE"
 echo "Node: $(hostname)"
 nvidia-smi -L
 
@@ -53,7 +54,7 @@ if [ -d "${POSTTRAINBENCH_DIR}/src/eval/tasks/${EVALUATION_TASK}/task_context" ]
     cp -r "${POSTTRAINBENCH_DIR}/src/eval/tasks/${EVALUATION_TASK}/task_context"/* "${JOB_DIR}/task/"
 fi
 
-# Generate prompt
+# Generate prompt (runs on host, before container)
 BENCHMARK=$(cat "${POSTTRAINBENCH_DIR}/src/eval/tasks/${EVALUATION_TASK}/benchmark.txt")
 PROMPT=$(python3 "${POSTTRAINBENCH_DIR}/src/eval/general/get_prompt.py" \
     --model-to-train "$MODEL_TO_TRAIN" \
@@ -65,17 +66,9 @@ echo "$PROMPT" > "${EVAL_DIR}/prompt.txt"
 # Generate timer
 bash "${POSTTRAINBENCH_DIR}/src/utils/create_timer.sh" "$NUM_HOURS" "${JOB_DIR}/task/timer.sh"
 
-# ── Set up agent venv ──
-echo "Setting up agent environment..."
-cd "${REPO_DIR}"
+# Write the prompt to a file so we don't have to escape it in env vars
+echo "$PROMPT" > "${JOB_DIR}/prompt.txt"
 
-if [ ! -d ".venv" ]; then
-    uv venv --python 3.12 .venv
-fi
-source .venv/bin/activate
-uv pip install -e ".[agent]" --quiet
-
-# ── Run agent ──
 echo "================================"
 echo "========= RUNNING TASK ========="
 echo "================================"
@@ -83,15 +76,37 @@ echo "================================"
 SOLVE_OUT="${EVAL_DIR}/solve_out.txt"
 START_TIME=$(date +%s)
 
-cd "${JOB_DIR}/task"
+# Run agent inside container via Pyxis
+# Mounts: task dir, HF cache, eval results dir, agent repo (for source)
+srun \
+    --container-image="${CONTAINER_IMAGE}" \
+    --container-mounts="${JOB_DIR}:/home/ben,${HF_CACHE}:/root/.cache/huggingface,${EVAL_DIR}:/eval_dir,${REPO_DIR}:/agent_repo" \
+    --container-workdir="/home/ben/task" \
+    --no-container-mount-home \
+    --container-writable \
+    bash -c '
+        export PATH="/root/.local/bin:$PATH"
+        export HF_HOME="/root/.cache/huggingface"
+        export ANTHROPIC_API_KEY="'"${ANTHROPIC_API_KEY}"'"
+        export HF_TOKEN="'"${HF_TOKEN:-}"'"
 
-# Map AGENT_CONFIG to litellm model ID
-MODEL_FLAG=""
-if [ -n "${AGENT_CONFIG:-}" ]; then
-    MODEL_FLAG="--model anthropic/${AGENT_CONFIG}"
-fi
+        # Install agent from mounted repo
+        cd /agent_repo
+        uv venv --python 3.12 /tmp/agent_venv
+        source /tmp/agent_venv/bin/activate
+        uv pip install -e ".[agent]" --quiet
 
-python -m agent.main --max-iterations -1 $MODEL_FLAG "$PROMPT" > "${SOLVE_OUT}" 2>&1 || true
+        # Run agent in the task directory
+        cd /home/ben/task
+        PROMPT=$(cat /home/ben/prompt.txt)
+
+        MODEL_FLAG=""
+        if [ -n "'"${AGENT_CONFIG}"'" ]; then
+            MODEL_FLAG="--model anthropic/'"${AGENT_CONFIG}"'"
+        fi
+
+        python -m agent.main --max-iterations -1 $MODEL_FLAG "$PROMPT"
+    ' > "${SOLVE_OUT}" 2>&1 || true
 
 END_TIME=$(date +%s)
 ELAPSED=$((END_TIME - START_TIME))
@@ -101,7 +116,7 @@ echo "============================================"
 echo "=== TASK COMPLETE ($(cat ${EVAL_DIR}/time_taken.txt)) ==="
 echo "============================================"
 
-# Copy results
+# Copy results out of container work dir
 if [ -d "${JOB_DIR}/task/final_model" ]; then
     cp -r "${JOB_DIR}/task/final_model" "$EVAL_DIR/final_model"
     echo "Final model saved to $EVAL_DIR/final_model"
@@ -111,20 +126,27 @@ fi
 
 cp -r "${JOB_DIR}/task" "$EVAL_DIR/task" 2>/dev/null || true
 
-# ── Evaluation ──
+# ── Evaluation (also in container) ──
 echo "================================"
 echo "========= EVALUATING ==========="
 echo "================================"
 
-cd "${POSTTRAINBENCH_DIR}/src/eval/tasks/${EVALUATION_TASK}"
-
-if [ -f "${EVAL_DIR}/final_model/config.json" ]; then
-    python evaluate.py \
-        --model-path "$EVAL_DIR/final_model" \
-        --templates-dir "${POSTTRAINBENCH_DIR}/src/eval/templates" \
-        --limit -1 \
-        --json-output-file "${EVAL_DIR}/metrics.json" \
-        > "$EVAL_DIR/final_eval.txt" 2>&1 || true
+if [ -d "${EVAL_DIR}/final_model" ] && [ -f "${EVAL_DIR}/final_model/config.json" ]; then
+    srun \
+        --container-image="${CONTAINER_IMAGE}" \
+        --container-mounts="${EVAL_DIR}:/eval_dir,${HF_CACHE}:/root/.cache/huggingface,${POSTTRAINBENCH_DIR}:/ptb" \
+        --container-workdir="/ptb/src/eval/tasks/${EVALUATION_TASK}" \
+        --no-container-mount-home \
+        --container-writable \
+        bash -c '
+            export HF_HOME="/root/.cache/huggingface"
+            export VLLM_API_KEY="inspectai"
+            python evaluate.py \
+                --model-path /eval_dir/final_model \
+                --templates-dir /ptb/src/eval/templates \
+                --limit -1 \
+                --json-output-file /eval_dir/metrics.json
+        ' > "$EVAL_DIR/final_eval.txt" 2>&1 || true
 
     if [ -f "${EVAL_DIR}/metrics.json" ]; then
         echo "Metrics:"
