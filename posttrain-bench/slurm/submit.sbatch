@@ -55,8 +55,9 @@ if [ -d "${POSTTRAINBENCH_DIR}/src/eval/tasks/${EVALUATION_TASK}/task_context" ]
 fi
 
 # Generate prompt (runs on host, before container)
+# get_prompt.py uses relative paths, so must run from PostTrainBench root
 BENCHMARK=$(cat "${POSTTRAINBENCH_DIR}/src/eval/tasks/${EVALUATION_TASK}/benchmark.txt")
-PROMPT=$(python3 "${POSTTRAINBENCH_DIR}/src/eval/general/get_prompt.py" \
+PROMPT=$(cd "${POSTTRAINBENCH_DIR}" && python3 src/eval/general/get_prompt.py \
     --model-to-train "$MODEL_TO_TRAIN" \
     --benchmark-id "$EVALUATION_TASK" \
     --num-hours "$NUM_HOURS" \
