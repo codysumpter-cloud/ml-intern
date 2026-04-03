@@ -199,7 +199,9 @@ def _is_transient_error(error: Exception) -> bool:
 
 async def _compact_and_notify(session: Session) -> None:
     """Run compaction and send event if context was reduced."""
-    session.context_manager.prune_old_tool_outputs()
+    await session.context_manager.prune_old_tool_outputs(
+        model_name=session.config.model_name,
+    )
     old_length = session.context_manager.context_length
     tool_specs = session.tool_router.get_tool_specs_for_llm()
     await session.context_manager.compact(
