@@ -35,7 +35,7 @@ RUN uv pip install --system --no-cache \
     pandas scikit-learn shortuuid tokenizers transformers trl peft \
     tiktoken inspect-ai matplotlib certifi
 
-RUN uv pip install --system --no-cache wheel setuptools && \
+RUN uv pip install --system --no-cache wheel setuptools einops psutil && \
     uv pip install --system --no-cache flash_attn --no-build-isolation
 
 # inspect_evals
