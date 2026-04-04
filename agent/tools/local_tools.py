@@ -105,7 +105,14 @@ async def _bash_handler(args: dict[str, Any], **_kw) -> tuple[str, bool]:
             output = "(no output)"
         return output, result.returncode == 0
     except subprocess.TimeoutExpired:
-        return f"Command timed out after {timeout}s.", False
+        return (
+            f"Command timed out after {timeout}s and was killed.\n\n"
+            f"For long-running commands, run in the background and poll:\n"
+            f"  nohup <command> > /tmp/output.log 2>&1 & echo $!\n"
+            f"Then check status with:\n"
+            f"  kill -0 <PID> 2>/dev/null && echo 'running' || echo 'done'\n"
+            f"  tail -n 50 /tmp/output.log"
+        ), False
     except Exception as e:
         return f"bash error: {e}", False
 
