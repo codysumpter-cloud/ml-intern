@@ -4,7 +4,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=128G
+#SBATCH --mem=256G
 #SBATCH --gres=gpu:1
 #SBATCH --time=12:00:00
 #SBATCH --output=logs/ptb_%j.out
