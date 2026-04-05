@@ -697,7 +697,18 @@ export default function ToolCallGroup({ tools, approveTools }: ToolCallGroupProp
         setPanel({ title: displayName, output: { content, language: 'markdown' }, input: inputSection }, 'output');
         setRightPanelOpen(true);
       } else if (args) {
-        setPanel({ title: displayName, output: { content: JSON.stringify(args, null, 2), language: 'json' }, input: inputSection }, 'output');
+        const runningMessages = [
+          'Crunching numbers and herding tensors...',
+          'Teaching the model some new tricks...',
+          'Consulting the GPU oracle...',
+          'Wrangling data into submission...',
+          'Brewing a fresh batch of predictions...',
+          'Negotiating with the transformer heads...',
+          'Polishing the attention weights...',
+          'Aligning the embedding stars...',
+        ];
+        const funMsg = runningMessages[Math.floor(Math.random() * runningMessages.length)];
+        setPanel({ title: displayName, output: { content: funMsg, language: 'text' }, input: inputSection }, 'output');
         setRightPanelOpen(true);
       }
     },
