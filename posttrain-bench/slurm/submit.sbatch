@@ -93,11 +93,12 @@ srun \
         export HF_TOKEN="'"${HF_TOKEN:-}"'"
         unset VIRTUAL_ENV
 
-        # Clone agent into container-local /tmp (fully isolated per job)
+        # Clone agent and install into system Python (3.11) which already
+        # has torch, trl, vllm, flash-attn etc. from the Docker image.
         git clone --depth 1 --branch posttrain-bench \
             https://github.com/huggingface/hf_agent.git /tmp/hf_agent
         cd /tmp/hf_agent
-        uv sync --extra agent --no-dev --python 3.12
+        uv pip install --system -e ".[agent]"
 
         # Run agent in the task directory
         cd /home/ben/task
@@ -108,7 +109,7 @@ srun \
             MODEL_FLAG="--model anthropic/'"${AGENT_CONFIG}"'"
         fi
 
-        uv run --project /tmp/hf_agent python -m agent.main --max-iterations -1 --no-stream $MODEL_FLAG "$PROMPT"
+        python -m agent.main --max-iterations -1 --no-stream $MODEL_FLAG "$PROMPT"
     ' > "${SOLVE_OUT}" 2>&1 || true
 
 END_TIME=$(date +%s)
