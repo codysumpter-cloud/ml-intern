@@ -351,8 +351,16 @@ async def research_handler(
             content = msg.content or "Research completed but no summary generated."
             return content, True
 
-        # Execute tool calls and add results
-        messages.append(msg)
+        # Execute tool calls and add results.
+        # Rebuild the assistant message with only the wire-safe fields —
+        # LiteLLM's raw Message carries `provider_specific_fields` and
+        # `reasoning_content`, which the HF router's OpenAI schema rejects
+        # if we echo them back in the next request.
+        messages.append(Message(
+            role="assistant",
+            content=msg.content,
+            tool_calls=msg.tool_calls,
+        ))
         for tc in msg.tool_calls:
             try:
                 tool_args = json.loads(tc.function.arguments)
